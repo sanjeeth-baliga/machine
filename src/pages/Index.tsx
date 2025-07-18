@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -14,7 +14,8 @@ import {
   UserPlus,
   Mail,
   Lock,
-  User
+  User,
+  
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,8 +55,14 @@ interface User {
   email: string;
 }
 
+interface AuthForm {
+  name: string;
+  email: string;
+  password: string;
+}
+
 // Mock data
-const mockCourses: Course[] = [
+/*const mockCourses: Course[] = [
   { id: '1', college: 'Stanford University', semester: 1, course: 'Introduction to AI', department: 'Computer Science', requestCount: 18, status: 'inactive' },
   { id: '2', college: 'Stanford University', semester: 2, course: 'Machine Learning', department: 'Computer Science', requestCount: 25, status: 'active' },
   { id: '3', college: 'Stanford University', semester: 1, course: 'Data Structures', department: 'Computer Science', requestCount: 12, status: 'progress' },
@@ -71,10 +78,13 @@ const mockCourses: Course[] = [
   { id: '13', college: 'Princeton University', semester: 1, course: 'Art History', department: 'Art', requestCount: 9, status: 'inactive' },
   { id: '14', college: 'Princeton University', semester: 2, course: 'Economics 101', department: 'Economics', requestCount: 23, status: 'active' },
   { id: '15', college: 'Princeton University', semester: 1, course: 'Creative Writing', department: 'English', requestCount: 16, status: 'progress' }
-];
+];*/
 
 const CourseCatalog = () => {
-  const [courses, setCourses] = useState<Course[]>(mockCourses);
+  //const [courses, setCourses] = useState<Course[]>(mockCourses);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [expandedColleges, setExpandedColleges] = useState<Set<string>>(new Set());
   const [collegeFilter, setCollegeFilter] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'requests'>('name');
@@ -85,7 +95,12 @@ const CourseCatalog = () => {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareModalCourse, setShareModalCourse] = useState<Course | null>(null);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  // New state to store the course ID that triggered the authentication request
+  const [courseIdForAuth, setCourseIdForAuth] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [processingCourseId, setProcessingCourseId] = useState<string | null>(null);
+  const [pendingCourseRequest, setPendingCourseRequest] = useState<null | typeof modalForm>(null);
+  const [courseRequestLoading, setCourseRequestLoading] = useState(false);
 
   const { toast } = useToast();
   
@@ -108,6 +123,43 @@ const CourseCatalog = () => {
     email: '',
     password: ''
   });
+
+  const googleAppScriptURL = "https://script.google.com/macros/s/AKfycbxEQuqd8x5Ze4l8suXR5v4yTGzDp9AwWO62xvwzS8aDIzUKVFw3d1AriUXad0Xp2G3MoQ/exec";
+
+  const courseSubmitScriptURL = "https://script.google.com/macros/s/AKfycbwbNoOloyMyfQojQl_sqF6KXV1fASrODftA9Oy9nlOoVLa-7glEEEhOqNdv6Q5-ljmAKg/exec";
+  // Fetch data from Google Sheets API
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const googleSheetURL = 'https://script.google.com/macros/s/AKfycbyYa9j2szWppeP5uz2uP9KI3UTHGvG0iyQj0vJ2rq1FdZJJCsBv5vk_CxnHBFwo7XyiPA/exec'; // Your script URL
+        const urlWithParams = new URL(googleSheetURL);
+        urlWithParams.searchParams.append('sheetName', 'Dashboard_Feed'); // Assuming your sheet name is 'Courses'
+
+        const response = await fetch(urlWithParams.toString());
+        const data = await response.json();
+
+        if (data.error) {
+          console.error("Error fetching data from Google Sheets:", data.error);
+        } else {
+          setCourses(data);
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  // On component mount, check sessionStorage for user
+  useEffect(() => {
+    const storedUser = sessionStorage.getItem('user');
+    if (storedUser) {
+      setCurrentUser(JSON.parse(storedUser));
+    }
+  }, []);
 
   // Get unique colleges and their data
   const collegeData = useMemo(() => {
@@ -153,42 +205,53 @@ const CourseCatalog = () => {
     setExpandedColleges(newExpanded);
   };
 
-  const handleRequest = (courseId: string) => {
+  const handleRequest = async (courseId: string) => {
     if (!currentUser) {
       setIsAuthModalOpen(true);
+      setCourseIdForAuth(courseId); // Store the courseId before opening auth modal
       return;
     }
 
-    const hasRequested = userRequests.has(courseId);
-    
-    if (hasRequested) {
-      // Withdraw request
-      setCourses(prev => prev.map(course => 
-        course.id === courseId 
-          ? { ...course, requestCount: Math.max(0, course.requestCount - 1) }
-          : course
-      ));
-      setUserRequests(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(courseId);
-        return newSet;
+    setProcessingCourseId(courseId);
+    try {
+      const response = await fetch(googleAppScriptURL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          'sheetName': 'Responses',
+          'id': courseId,
+          'name': currentUser.name,
+          'email': currentUser.email,
+        }).toString(),
       });
+      const data = await response.json();
+      if (data.result && data.result.startsWith('Error')) {
+        toast({
+          title: 'Request Failed',
+          description: `Failed to add your request: ${data.result}`,
+          variant: 'destructive',
+        });
+      } else {
+        setCourses(prev => prev.map(course =>
+          course.id === courseId
+            ? { ...course, requestCount: course.requestCount + 1 }
+            : course
+        ));
+        toast({
+          title: 'Course requested!',
+          description: 'Your request has been added successfully.',
+        });
+      }
+    } catch (error) {
       toast({
-        title: "Request withdrawn",
-        description: "Your course request has been withdrawn.",
+        title: 'Network Error',
+        description: 'Could not connect to the request service.',
+        variant: 'destructive',
       });
-    } else {
-      // Add request
-      setCourses(prev => prev.map(course => 
-        course.id === courseId 
-          ? { ...course, requestCount: course.requestCount + 1 }
-          : course
-      ));
-      setUserRequests(prev => new Set([...prev, courseId]));
-      toast({
-        title: "Course requested!",
-        description: "Your request has been added successfully.",
-      });
+    } finally {
+      setProcessingCourseId(null);
     }
   };
 
@@ -234,36 +297,116 @@ const CourseCatalog = () => {
     }
   };
 
-  const handleAuth = () => {
+  const handleAuth = async () => {
+    let mockUser: User;
     if (authMode === 'signin') {
       // Mock signin
-      const mockUser = { id: '1', name: 'John Doe', email: authForm.email };
+      mockUser = { id: 'user_1', name: 'John Doe', email: authForm.email }; // Using a generic ID and name for mock
       setCurrentUser(mockUser);
+      sessionStorage.setItem('user', JSON.stringify(mockUser));
       toast({
-        title: "Welcome back!",
-        description: "You have successfully signed in.",
+        title: 'Welcome back!',
+        description: 'You have successfully signed in.',
       });
     } else {
       // Mock signup
-      const mockUser = { id: '1', name: authForm.name, email: authForm.email };
+      mockUser = { id: 'user_1', name: authForm.name, email: authForm.email };
       setCurrentUser(mockUser);
+      sessionStorage.setItem('user', JSON.stringify(mockUser));
       toast({
-        title: "Account created!",
-        description: "Welcome to Course Catalog!",
+        title: 'Account created!',
+        description: 'Welcome to Course Catalog!',
       });
     }
+
+    if (!courseIdForAuth && !pendingCourseRequest) {
+      toast({
+        title: 'Authentication Error',
+        description: 'Could not determine which course was requested.',
+        variant: 'destructive',
+      });
+      setIsAuthModalOpen(false);
+      return;
+    }
+
+    // If this was a course request from the modal, submit it now
+    if (pendingCourseRequest) {
+      submitCourseRequest(pendingCourseRequest);
+      setPendingCourseRequest(null);
+    }
+
+    // If this was a course request from the main table, continue as before
+    if (courseIdForAuth) {
+      try {
+        const response = await fetch(googleAppScriptURL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            'sheetName': 'Responses',
+            'id': courseIdForAuth,
+            'name': mockUser.name,
+            'email': authForm.email,
+          }).toString(),
+        });
+        const data = await response.json();
+
+        if (data.result.startsWith('Error')) {
+          console.error('Error updating Google Sheets:', data.result);
+          toast({
+            title: 'Update Failed',
+            description: `Failed to record authentication event: ${data.result}`,
+            variant: 'destructive',
+          });
+        } else {
+          console.log('Google Sheets updated successfully:', data.result);
+          toast({
+            title: 'Authentication Recorded',
+            description: 'Your login/signup event has been recorded.',
+          });
+        }
+      } catch (error) {
+        console.error('Error during Google Sheets API call:', error);
+        toast({
+          title: 'Network Error',
+          description: 'Could not connect to the sheet update service.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsAuthModalOpen(false);
+        setAuthForm({ name: '', email: '', password: '' });
+        setCourseIdForAuth(null);
+      }
+      return;
+    }
+
     setIsAuthModalOpen(false);
     setAuthForm({ name: '', email: '', password: '' });
+    setCourseIdForAuth(null);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setUserRequests(new Set());
+    sessionStorage.removeItem('user');
     toast({
-      title: "Logged out",
-      description: "You have been logged out successfully.",
+      title: 'Logged out',
+      description: 'You have been logged out successfully.',
     });
+
   };
+
+  // Effect to re-trigger handleRequest after successful authentication
+  useEffect(() => {
+    if (currentUser && courseIdForAuth) {
+      // If the user just logged in/signed up due to a request,
+      // re-run the handleRequest logic for that course.
+      handleRequest(courseIdForAuth);
+      setIsAuthModalOpen(false);
+      setCourseIdForAuth(null); // Clear the ID as it's been processed
+    }
+  }, [currentUser, courseIdForAuth]); // Depend on currentUser and courseIdForAuth
 
   const getFilteredCourses = (collegeCourses: Course[], collegeName: string) => {
     return collegeCourses.filter(course => {
@@ -288,14 +431,56 @@ const CourseCatalog = () => {
     }
   };
 
+  const submitCourseRequest = async (form: typeof modalForm) => {
+    setCourseRequestLoading(true);
+    try {
+      const response = await fetch(courseSubmitScriptURL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          college: form.college,
+          semester: form.semester,
+          course: form.courseName,
+          department: form.department,
+          name: currentUser?.name || '',
+          email: currentUser?.email || '',
+        }).toString(),
+      });
+      const data = await response.json();
+      if (data.result && data.result.startsWith('Error')) {
+        toast({
+          title: 'Request Failed',
+          description: `Failed to submit your course request: ${data.result}`,
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: "Course request submitted!",
+          description: "We'll review your request and get back to you soon.",
+        });
+        setIsModalOpen(false);
+        setModalForm({ college: '', semester: '', courseName: '', department: '' });
+      }
+    } catch (error) {
+      toast({
+        title: 'Network Error',
+        description: 'Could not connect to the request service.',
+        variant: 'destructive',
+      });
+    } finally {
+      setCourseRequestLoading(false);
+    }
+  };
+
   const handleModalSubmit = () => {
-    console.log('Course request submitted:', modalForm);
-    setIsModalOpen(false);
-    setModalForm({ college: '', semester: '', courseName: '', department: '' });
-    toast({
-      title: "Course request submitted!",
-      description: "We'll review your request and get back to you soon.",
-    });
+    if (!currentUser) {
+      setPendingCourseRequest({ ...modalForm });
+      setIsAuthModalOpen(true);
+      return;
+    }
+    submitCourseRequest(modalForm);
   };
 
   const handleFilterClick = (college: string, column: string) => {
@@ -361,6 +546,15 @@ const CourseCatalog = () => {
         <Search className="h-3 w-3 opacity-50" />
       </button>
     );
+  };
+
+  // Add Google sign-in handler
+  const handleGoogleSignIn = () => {
+    // TODO: Implement Google OAuth logic here
+    toast({
+      title: 'Google Sign-In',
+      description: 'Google sign-in clicked (implement OAuth logic).',
+    });
   };
 
   return (
@@ -466,9 +660,16 @@ const CourseCatalog = () => {
                     <Button 
                       onClick={handleModalSubmit}
                       className="flex-1"
-                      disabled={!modalForm.college || !modalForm.semester || !modalForm.courseName || !modalForm.department}
+                      disabled={!modalForm.college || !modalForm.semester || !modalForm.courseName || !modalForm.department || courseRequestLoading}
                     >
-                      Submit Request
+                      {courseRequestLoading ? (
+                        <span className="flex items-center">
+                          <span className="animate-spin mr-2 h-4 w-4 border-2 border-t-transparent border-white rounded-full inline-block align-middle"></span>
+                          Submitting...
+                        </span>
+                      ) : (
+                        'Submit Request'
+                      )}
                     </Button>
                     <Button 
                       variant="outline" 
@@ -599,7 +800,7 @@ const CourseCatalog = () => {
                         {getFilteredCourses(collegeCourses, collegeName).map(course => {
                           const progressPercentage = Math.min((course.requestCount / 25) * 100, 100);
                           const isComplete = course.requestCount >= 25;
-                          const hasRequested = userRequests.has(course.id);
+                          // const hasRequested = userRequests.has(course.id); // No longer needed
 
                           return (
                             <tr key={course.id} className="border-b last:border-b-0 hover:bg-accent/50 transition-colors">
@@ -636,13 +837,17 @@ const CourseCatalog = () => {
                                   <Button
                                     size="sm"
                                     onClick={() => handleRequest(course.id)}
-                                    className={`transform hover:scale-105 transition-all duration-200 shadow-md ${
-                                      hasRequested 
-                                        ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground' 
-                                        : 'bg-gradient-primary hover:opacity-90 text-primary-foreground'
-                                    }`}
+                                    className={"transform hover:scale-105 transition-all duration-200 shadow-md bg-gradient-primary hover:opacity-90 text-primary-foreground"}
+                                    disabled={processingCourseId === course.id}
                                   >
-                                    {hasRequested ? 'Withdraw' : 'Request'}
+                                    {processingCourseId === course.id ? (
+                                      <span className="flex items-center">
+                                        <span className="animate-spin mr-2 h-4 w-4 border-2 border-t-transparent border-white rounded-full inline-block align-middle"></span>
+                                        Processing...
+                                      </span>
+                                    ) : (
+                                      "Request"
+                                    )}
                                   </Button>
                                   
                                   <Button
@@ -674,7 +879,7 @@ const CourseCatalog = () => {
                      {getFilteredCourses(collegeCourses, collegeName).map(course => {
                        const progressPercentage = Math.min((course.requestCount / 25) * 100, 100);
                        const isComplete = course.requestCount >= 25;
-                       const hasRequested = userRequests.has(course.id);
+                       // const hasRequested = userRequests.has(course.id); // No longer needed
 
                        return (
                          <div key={course.id} className="border-b last:border-b-0 hover:bg-accent/50 transition-colors p-4 space-y-3">
@@ -713,13 +918,17 @@ const CourseCatalog = () => {
                               <Button
                                 size="sm"
                                 onClick={() => handleRequest(course.id)}
-                                className={`transform hover:scale-105 transition-all duration-200 shadow-md flex-1 ${
-                                  hasRequested 
-                                    ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground' 
-                                    : 'bg-gradient-primary hover:opacity-90 text-primary-foreground'
-                                }`}
+                                className={"transform hover:scale-105 transition-all duration-200 shadow-md flex-1 bg-gradient-primary hover:opacity-90 text-primary-foreground"}
+                                disabled={processingCourseId === course.id}
                               >
-                                {hasRequested ? 'Withdraw' : 'Request'}
+                                {processingCourseId === course.id ? (
+                                  <span className="flex items-center">
+                                    <span className="animate-spin mr-2 h-4 w-4 border-2 border-t-transparent border-white rounded-full inline-block align-middle"></span>
+                                    Processing...
+                                  </span>
+                                ) : (
+                                  "Request"
+                                )}
                               </Button>
                               
                               <Button
@@ -755,7 +964,11 @@ const CourseCatalog = () => {
           
           {collegeData.length === 0 && (
             <Card className="p-8 text-center">
-              <p className="text-muted-foreground">No colleges found matching your search.</p>
+              {loading ? (
+                  <p className="text-muted-foreground">Loading courses...</p>
+                ) : (
+                  <p className="text-muted-foreground">No courses found.</p>
+                )}
             </Card>
           )}
         </div>
@@ -784,7 +997,6 @@ const CourseCatalog = () => {
                 </div>
               </div>
             )}
-            
             <div>
               <label className="text-sm font-medium text-foreground mb-2 block">
                 Email
@@ -800,7 +1012,6 @@ const CourseCatalog = () => {
                 />
               </div>
             </div>
-            
             <div>
               <label className="text-sm font-medium text-foreground mb-2 block">
                 Password
@@ -816,7 +1027,6 @@ const CourseCatalog = () => {
                 />
               </div>
             </div>
-            
             <div className="flex gap-3 pt-4">
               <Button 
                 onClick={handleAuth}
@@ -836,7 +1046,21 @@ const CourseCatalog = () => {
                 )}
               </Button>
             </div>
-            
+            {/* Separator */}
+            <div className="flex items-center my-2">
+              <div className="flex-1 h-px bg-muted" />
+              <span className="mx-2 text-xs text-muted-foreground">or</span>
+              <div className="flex-1 h-px bg-muted" />
+            </div>
+            {/* Continue with Google Button */}
+            <Button
+              onClick={handleGoogleSignIn}
+              variant="outline"
+              className="w-full flex items-center justify-center gap-2 border border-gray-300"
+            >
+              {/*<Google className="h-4 w-4" />*/}
+              Continue with Google
+            </Button>
             <div className="text-center">
               <button
                 onClick={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')}
