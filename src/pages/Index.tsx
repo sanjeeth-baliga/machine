@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -131,30 +131,31 @@ const CourseCatalog = () => {
 
   const courseSubmitScriptURL = "https://script.google.com/macros/s/AKfycbwbNoOloyMyfQojQl_sqF6KXV1fASrODftA9Oy9nlOoVLa-7glEEEhOqNdv6Q5-ljmAKg/exec";
   // Fetch data from Google Sheets API
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const googleSheetURL = 'https://script.google.com/macros/s/AKfycbyYa9j2szWppeP5uz2uP9KI3UTHGvG0iyQj0vJ2rq1FdZJJCsBv5vk_CxnHBFwo7XyiPA/exec'; // Your script URL
-        const urlWithParams = new URL(googleSheetURL);
-        urlWithParams.searchParams.append('sheetName', 'Dashboard_Feed'); // Assuming your sheet name is 'Courses'
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const googleSheetURL = 'https://script.google.com/macros/s/AKfycbyYa9j2szWppeP5uz2uP9KI3UTHGvG0iyQj0vJ2rq1FdZJJCsBv5vk_CxnHBFwo7XyiPA/exec'; // Your script URL
+      const urlWithParams = new URL(googleSheetURL);
+      urlWithParams.searchParams.append('sheetName', 'Dashboard_Feed'); // Assuming your sheet name is 'Courses'
 
-        const response = await fetch(urlWithParams.toString());
-        const data = await response.json();
+      const response = await fetch(urlWithParams.toString());
+      const data = await response.json();
 
-        if (data.error) {
-          console.error("Error fetching data from Google Sheets:", data.error);
-        } else {
-          setCourses(data);
-        }
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      } finally {
-        setLoading(false);
+      if (data.error) {
+        console.error("Error fetching data from Google Sheets:", data.error);
+      } else {
+        setCourses(data);
       }
-    };
-    fetchData();
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // On component mount, check sessionStorage for user
   useEffect(() => {
@@ -565,6 +566,7 @@ const CourseCatalog = () => {
         });
         setIsModalOpen(false);
         setModalForm({ college: '', semester: '', courseName: '', department: '' });
+        fetchData();
       }
     } catch (error) {
       toast({
@@ -578,7 +580,7 @@ const CourseCatalog = () => {
   };
 
   const handleModalSubmit = () => {
-    if (!currentUser) {
+    if (!currentUser) { //
       setPendingCourseRequest({ ...modalForm });
       setIsAuthModalOpen(true);
       return;
