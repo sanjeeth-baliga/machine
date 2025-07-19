@@ -36,6 +36,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { signInWithEmailAndPassword, signInWithPopup, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+import { auth, googleProvider } from "../firebase"; // auth and googleProvider for Firebase
 
 // Course interface
 interface Course {
@@ -109,6 +111,7 @@ const CourseCatalog = () => {
   const [semesterFilter, setSemesterFilter] = useState<{[college: string]: string}>({});
   const [courseNameFilter, setCourseNameFilter] = useState<{[college: string]: string}>({});
   const [activeFilterColumn, setActiveFilterColumn] = useState<{college: string, column: string} | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Modal form states
   const [modalForm, setModalForm] = useState({
@@ -297,26 +300,126 @@ const CourseCatalog = () => {
     }
   };
 
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    
+    if (!authForm.email) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(authForm.email)) {
+      newErrors.email = 'Please enter a valid email';
+    }
+    
+    if (!authForm.password) {
+      newErrors.password = 'Password is required';
+    } else if (authForm.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+    
+    if (authMode === 'signup' && !authForm.name) {
+      newErrors.name = 'Name is required';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleAuth = async () => {
     let mockUser: User;
+    if (!validateForm()) return;
     if (authMode === 'signin') {
       // Mock signin
-      mockUser = { id: 'user_1', name: 'John Doe', email: authForm.email }; // Using a generic ID and name for mock
-      setCurrentUser(mockUser);
-      sessionStorage.setItem('user', JSON.stringify(mockUser));
-      toast({
-        title: 'Welcome back!',
-        description: 'You have successfully signed in.',
-      });
+      mockUser = { id:'',name: '', email: authForm.email }; // Using a generic ID and name for mock
+      
+      try {
+        // Sign in using Firebase
+        const userCredential = await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
+        const firebaseUser = userCredential.user;
+        if (!firebaseUser.emailVerified) {
+          console.log("User email not verified. Logging out...");
+          await auth.signOut();  // Logout unverified user
+          throw new Error("Please verify your email before logging in.");
+        }
+
+        const user_email = firebaseUser.email;
+        //const user_name = firebaseUser.displayName;
+
+        if (!user_email) {
+          // Email is crucial for your backend according to the plan
+          throw new Error("Firebase authentication failed: email not available.");
+        }
+        console.log("Login successful with Firebase:", user_email);
+
+        setCurrentUser(mockUser);
+        sessionStorage.setItem('user', JSON.stringify(mockUser));
+        toast({
+          title: 'Congratulations!',
+          description: 'Your request has been registered',
+        });
+        
+      } catch (err: any) {
+        // Handle friendly Firebase errors
+        const newErrors: Record<string, string> = {};
+        let friendlyMessage = "An error occurred during login.";
+  
+        if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
+          friendlyMessage = "Incorrect email or password.";
+        } else if (err.code === "auth/user-not-found") {
+          friendlyMessage = "No user found with this email.";
+        } else if (err.code === "auth/too-many-requests") {
+          friendlyMessage = "Too many failed attempts. Try again later.";
+        } else if (err.code === "auth/invalid-email") {
+          friendlyMessage = "Please enter a valid email address.";
+        } else if (err.message.includes("verify your email")) {
+          friendlyMessage = err.message;
+        }
+        
+        newErrors.password = friendlyMessage;
+        setErrors(newErrors);
+        return;
+      }
+      
+      
     } else {
       // Mock signup
-      mockUser = { id: 'user_1', name: authForm.name, email: authForm.email };
-      setCurrentUser(mockUser);
-      sessionStorage.setItem('user', JSON.stringify(mockUser));
-      toast({
-        title: 'Account created!',
-        description: 'Welcome to Course Catalog!',
-      });
+      mockUser = { id:'',name: authForm.name, email: authForm.email };
+      try {
+        
+        const userCredential = await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
+        const user = userCredential.user;
+
+        // Send email verification
+        await sendEmailVerification(user);
+
+        // Signup successful
+        console.log("Signup successful. Verification mail has been sent");
+        
+        setCurrentUser(mockUser);
+        sessionStorage.setItem('user', JSON.stringify(mockUser));
+        toast({
+          title: 'Request Accepted!',
+          description: 'Congratulations! Your request has been registered',
+        });
+        
+      } catch (err: any) {
+        let friendlyMessage = "An error occurred during signup.";
+        const newErrors: Record<string, string> = {};
+
+        if (err.code === "auth/email-already-in-use") {
+          friendlyMessage = "This email is already registered. Try logging in.";
+        } else if (err.code === "auth/weak-password") {
+          friendlyMessage = "Password entered is too weak. Please use a stronger one.";
+        } else if (err.code === "auth/invalid-email") {
+          friendlyMessage = "Please enter a valid email address.";
+        } else if (err.code === "auth/operation-not-allowed") {
+          friendlyMessage = "Signup is temporarily disabled. Please try again later.";
+        } else {
+          friendlyMessage = "Password entered is incorrect or invalid.";
+        }
+        newErrors.password = friendlyMessage;
+        setErrors(newErrors);
+        return;
+      }
+      
     }
 
     if (!courseIdForAuth && !pendingCourseRequest) {
@@ -346,7 +449,7 @@ const CourseCatalog = () => {
           body: new URLSearchParams({
             'sheetName': 'Responses',
             'id': courseIdForAuth,
-            'name': mockUser.name,
+            'name': authForm.name,
             'email': authForm.email,
           }).toString(),
         });
@@ -549,12 +652,126 @@ const CourseCatalog = () => {
   };
 
   // Add Google sign-in handler
-  const handleGoogleSignIn = () => {
+  const handleGoogleSignIn = async() => {
     // TODO: Implement Google OAuth logic here
+    let mockUser: User;
+    try {
+      // Step 1: Sign in with Firebase Google Popup
+      
+      const result = await signInWithPopup(auth, googleProvider);
+      const firebaseUser = result.user;
+
+      if (!firebaseUser) {
+        throw new Error("Firebase authentication failed: no user data returned.");
+      }
+
+      const email = firebaseUser.email;
+      const name = firebaseUser.displayName;
+
+      if (!email) {
+        // Email is crucial for your backend according to the plan
+        throw new Error("Firebase authentication failed: email not available.");
+      }
+
+      console.log("Firebase Google Login successful. User:", name, email);
+      mockUser = { id:'',name: name, email: email };
+      setCurrentUser(mockUser);
+      sessionStorage.setItem('user', JSON.stringify(mockUser));
+        
+
+    } catch (err:any) {
+      console.error("Error in handleGoogleLogin:", err);
+      const newErrors: Record<string, string> = {};
+      let friendlyMessage = "An unexpected error occurred during Google login";
+
+      if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
+        friendlyMessage = "Incorrect email or password";
+      } else if (err.code === "auth/user-not-found") {
+        friendlyMessage = "No user found with this email";
+      } else if (err.code === "auth/too-many-requests") {
+        friendlyMessage = "Too many failed attempts. Try again later";
+      } else if (err.code === "auth/invalid-email") {
+        friendlyMessage = "Please enter a valid email address";
+      } else if (err.code === 'auth/popup-closed-by-user') {
+          newErrors.name = "Google Sign-In was cancelled";
+      } else if (err.message.includes("verify your email")) {
+        friendlyMessage = err.message;
+      }
+      newErrors.password = friendlyMessage;
+      setErrors(newErrors);
+      return;
+    }
+
+    if (!courseIdForAuth && !pendingCourseRequest) {
+      toast({
+        title: 'Authentication Error',
+        description: 'Could not determine which course was requested.',
+        variant: 'destructive',
+      });
+      setIsAuthModalOpen(false);
+      return;
+    }
+
+    // If this was a course request from the modal, submit it now
+    if (pendingCourseRequest) {
+      submitCourseRequest(pendingCourseRequest);
+      setPendingCourseRequest(null);
+    }
+
+    if (courseIdForAuth) {
+      try {
+        const response = await fetch(googleAppScriptURL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            'sheetName': 'Responses',
+            'id': courseIdForAuth,
+            'name': mockUser.name,
+            'email': authForm.email,
+          }).toString(),
+        });
+        const data = await response.json();
+
+        if (data.result.startsWith('Error')) {
+          console.error('Error updating Google Sheets:', data.result);
+          toast({
+            title: 'Update Failed',
+            description: `Failed to record authentication event: ${data.result}`,
+            variant: 'destructive',
+          });
+        } else {
+          console.log('Google Sheets updated successfully:', data.result);
+          toast({
+            title: 'Authentication Recorded',
+            description: 'Your login/signup event has been recorded.',
+          });
+        }
+      } catch (error) {
+        console.error('Error during Google Sheets API call:', error);
+        toast({
+          title: 'Network Error',
+          description: 'Could not connect to the sheet update service.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsAuthModalOpen(false);
+        setAuthForm({ name: '', email: '', password: '' });
+        setCourseIdForAuth(null);
+      }
+      
+    }
+
+    setIsAuthModalOpen(false);
+    setAuthForm({ name: '', email: '', password: '' });
+    setCourseIdForAuth(null);
+
     toast({
       title: 'Google Sign-In',
       description: 'Google sign-in clicked (implement OAuth logic).',
     });
+    return;
   };
 
   return (
@@ -564,13 +781,13 @@ const CourseCatalog = () => {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl lg:text-4xl font-bold text-foreground bg-gradient-primary bg-clip-text text-transparent">
-              Course Catalog
+              Course Popularity Leaderboard
             </h1>
             <p className="text-muted-foreground mt-2">Discover and request courses from top universities</p>
           </div>
           
           <div className="flex items-center gap-3 w-full sm:w-auto">
-            {currentUser ? (
+            {/*{currentUser ? (
               <div className="flex items-center gap-3">
                 <span className="text-sm text-foreground hidden sm:inline">Welcome, {currentUser.name}</span>
                 <Button variant="outline" size="sm" onClick={handleLogout}>
@@ -582,7 +799,7 @@ const CourseCatalog = () => {
                 <LogIn className="h-4 w-4 mr-2" />
                 Sign In
               </Button>
-            )}
+            )}*/}
             
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
               <DialogTrigger asChild>
@@ -995,6 +1212,7 @@ const CourseCatalog = () => {
                     className="pl-10"
                   />
                 </div>
+                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
               </div>
             )}
             <div>
@@ -1011,6 +1229,7 @@ const CourseCatalog = () => {
                   className="pl-10"
                 />
               </div>
+              {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
             </div>
             <div>
               <label className="text-sm font-medium text-foreground mb-2 block">
@@ -1026,6 +1245,7 @@ const CourseCatalog = () => {
                   className="pl-10"
                 />
               </div>
+              {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password}</p>}
             </div>
             <div className="flex gap-3 pt-4">
               <Button 
