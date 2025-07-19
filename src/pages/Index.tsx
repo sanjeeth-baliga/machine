@@ -213,6 +213,7 @@ const CourseCatalog = () => {
     if (!currentUser) {
       setIsAuthModalOpen(true);
       setCourseIdForAuth(courseId); // Store the courseId before opening auth modal
+      
       return;
     }
 
@@ -248,6 +249,7 @@ const CourseCatalog = () => {
           description: 'Your request has been added successfully.',
         });
       }
+      fetchData();
     } catch (error) {
       toast({
         title: 'Network Error',
@@ -349,6 +351,9 @@ const CourseCatalog = () => {
           throw new Error("Firebase authentication failed: email not available.");
         }
         console.log("Login successful with Firebase:", user_email);
+        
+        mockUser.name = firebaseUser.displayName || '';
+        console.log("Mock user name has been set to:", mockUser.name);
 
         setCurrentUser(mockUser);
         sessionStorage.setItem('user', JSON.stringify(mockUser));
@@ -435,8 +440,11 @@ const CourseCatalog = () => {
 
     // If this was a course request from the modal, submit it now
     if (pendingCourseRequest) {
-      submitCourseRequest(pendingCourseRequest);
+      await submitCourseRequest(pendingCourseRequest);
       setPendingCourseRequest(null);
+      setIsAuthModalOpen(false);
+      setAuthForm({ name: '', email: '', password: '' });
+      return;
     }
 
     // If this was a course request from the main table, continue as before
@@ -450,8 +458,8 @@ const CourseCatalog = () => {
           body: new URLSearchParams({
             'sheetName': 'Responses',
             'id': courseIdForAuth,
-            'name': authForm.name,
-            'email': authForm.email,
+            'name': mockUser.name,
+            'email': mockUser.email,
           }).toString(),
         });
         const data = await response.json();
@@ -470,6 +478,8 @@ const CourseCatalog = () => {
             description: 'Your login/signup event has been recorded.',
           });
         }
+        fetchData();
+
       } catch (error) {
         console.error('Error during Google Sheets API call:', error);
         toast({
@@ -502,7 +512,7 @@ const CourseCatalog = () => {
   };
 
   // Effect to re-trigger handleRequest after successful authentication
-  useEffect(() => {
+  /*useEffect(() => {
     if (currentUser && courseIdForAuth) {
       // If the user just logged in/signed up due to a request,
       // re-run the handleRequest logic for that course.
@@ -510,7 +520,7 @@ const CourseCatalog = () => {
       setIsAuthModalOpen(false);
       setCourseIdForAuth(null); // Clear the ID as it's been processed
     }
-  }, [currentUser, courseIdForAuth]); // Depend on currentUser and courseIdForAuth
+  }, [currentUser, courseIdForAuth]); // Depend on currentUser and courseIdForAuth*/
 
   const getFilteredCourses = (collegeCourses: Course[], collegeName: string) => {
     return collegeCourses.filter(course => {
@@ -537,6 +547,9 @@ const CourseCatalog = () => {
 
   const submitCourseRequest = async (form: typeof modalForm) => {
     setCourseRequestLoading(true);
+    const storedUser = sessionStorage.getItem('user');
+    const user: User | null = storedUser ? JSON.parse(storedUser) : null;
+
     try {
       const response = await fetch(courseSubmitScriptURL, {
         method: 'POST',
@@ -548,8 +561,8 @@ const CourseCatalog = () => {
           semester: form.semester,
           course: form.courseName,
           department: form.department,
-          name: currentUser?.name || '',
-          email: currentUser?.email || '',
+          name: user?.name || '',
+          email: user?.email || '',
         }).toString(),
       });
       const data = await response.json();
@@ -716,8 +729,11 @@ const CourseCatalog = () => {
 
     // If this was a course request from the modal, submit it now
     if (pendingCourseRequest) {
-      submitCourseRequest(pendingCourseRequest);
+      await submitCourseRequest(pendingCourseRequest);
       setPendingCourseRequest(null);
+      setIsAuthModalOpen(false);
+      setAuthForm({ name: '', email: '', password: '' });
+      return;
     }
 
     if (courseIdForAuth) {
@@ -731,7 +747,7 @@ const CourseCatalog = () => {
             'sheetName': 'Responses',
             'id': courseIdForAuth,
             'name': mockUser.name,
-            'email': authForm.email,
+            'email': mockUser.email,
           }).toString(),
         });
         const data = await response.json();
@@ -750,6 +766,7 @@ const CourseCatalog = () => {
             description: 'Your login/signup event has been recorded.',
           });
         }
+        fetchData();
       } catch (error) {
         console.error('Error during Google Sheets API call:', error);
         toast({
