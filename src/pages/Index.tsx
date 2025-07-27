@@ -1047,13 +1047,13 @@ const CourseCatalog = () => {
               <DialogTrigger asChild>
                 <Button className="bg-gradient-primary hover:opacity-90 text-primary-foreground font-medium px-4 lg:px-6 py-3 rounded-lg shadow-elegant">
                   <Plus className="h-5 w-5 mr-2" />
-                  <span className="hidden sm:inline">Request a Course</span>
+                  <span className="hidden sm:inline">Add College / Course</span>
                   <span className="sm:hidden">Request</span>
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Add College / Course</DialogTitle>
+                  <DialogTitle>Add new College / Course</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 pt-4">
                   <div>
