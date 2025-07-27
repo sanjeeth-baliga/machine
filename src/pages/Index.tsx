@@ -176,7 +176,20 @@ const CourseCatalog = () => {
     courseName: '',
     department: ''
   });
-
+  
+  const [showCollegeSuggestions, setShowCollegeSuggestions] = useState(false);
+  
+  // Get filtered college suggestions
+  const getCollegeSuggestions = () => {
+    if (!modalForm.college) return [];
+    return Array.from(new Set(courses.map(c => c.college)))
+      .filter(college => 
+        college.toLowerCase().includes(modalForm.college.toLowerCase()) &&
+        college.toLowerCase() !== modalForm.college.toLowerCase()
+      )
+      .slice(0, 5); // Limit to 5 suggestions
+  };
+  
   const [authForm, setAuthForm] = useState({
     name: '',
     email: '',
@@ -1040,26 +1053,48 @@ const CourseCatalog = () => {
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Request a New Course</DialogTitle>
+                  <DialogTitle>Add College / Course</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 pt-4">
                   <div>
                     <label className="text-sm font-medium text-foreground mb-2 block">
-                      College Name
+                      University Name
                     </label>
-                    <Select 
-                      value={modalForm.college} 
-                      onValueChange={(value) => setModalForm(prev => ({ ...prev, college: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a college" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from(new Set(courses.map(c => c.college))).map(college => (
-                          <SelectItem key={college} value={college}>{college}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="relative">
+                      <Input
+                        value={modalForm.college}
+                        onChange={(e) => {
+                          setModalForm(prev => ({ ...prev, college: e.target.value }));
+                          setShowCollegeSuggestions(e.target.value.length > 0);
+                        }}
+                        onFocus={() => setShowCollegeSuggestions(modalForm.college.length > 0)}
+                        onBlur={() => {
+                          // Delay hiding suggestions to allow for clicks
+                          setTimeout(() => setShowCollegeSuggestions(false), 200);
+                        }}
+                        placeholder="Type university name..."
+                        className="w-full"
+                      />
+                      
+                      {/* Suggestions Dropdown */}
+                      {showCollegeSuggestions && getCollegeSuggestions().length > 0 && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                          {getCollegeSuggestions().map((college) => (
+                            <button
+                              key={college}
+                              type="button"
+                              onClick={() => {
+                                setModalForm(prev => ({ ...prev, college }));
+                                setShowCollegeSuggestions(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors border-b last:border-b-0"
+                            >
+                              {college}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   
                   <div>
@@ -1076,6 +1111,12 @@ const CourseCatalog = () => {
                       <SelectContent>
                         <SelectItem value="1">Semester 1</SelectItem>
                         <SelectItem value="2">Semester 2</SelectItem>
+                        <SelectItem value="3">Semester 3</SelectItem>
+                        <SelectItem value="4">Semester 4</SelectItem>
+                        <SelectItem value="5">Semester 5</SelectItem>
+                        <SelectItem value="6">Semester 6</SelectItem>
+                        <SelectItem value="7">Semester 7</SelectItem>
+                        <SelectItem value="8">Semester 8</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
