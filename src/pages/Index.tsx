@@ -1172,48 +1172,50 @@ const CourseCatalog = () => {
           </div>
         </div>
 
-        {/* Controls */}
-        <Card className="p-4 lg:p-6 mb-6 shadow-card">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Filter colleges..."
-                  value={collegeFilter}
-                  onChange={(e) => setCollegeFilter(e.target.value)}
-                  className="pl-10"
-                />
+{/* Sticky Controls */}
+        <div className="sticky top-0 z-40 bg-gradient-background mb-6">
+          <Card className="p-4 lg:p-6 shadow-card">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Filter colleges..."
+                    value={collegeFilter}
+                    onChange={(e) => setCollegeFilter(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => handleSort('name')}
+                  className={`${sortBy === 'name' ? 'bg-accent' : ''} text-sm`}
+                  size="sm"
+                >
+                  <ArrowUpDown className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">College Name</span>
+                  <span className="sm:hidden">Name</span>
+                  {sortBy === 'name' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  onClick={() => handleSort('requests')}
+                  className={`${sortBy === 'requests' ? 'bg-accent' : ''} text-sm`}
+                  size="sm"
+                >
+                  <ArrowUpDown className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">Total Requests</span>
+                  <span className="sm:hidden">Requests</span>
+                  {sortBy === 'requests' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                </Button>
               </div>
             </div>
-            
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                variant="outline"
-                onClick={() => handleSort('name')}
-                className={`${sortBy === 'name' ? 'bg-accent' : ''} text-sm`}
-                size="sm"
-              >
-                <ArrowUpDown className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">College Name</span>
-                <span className="sm:hidden">Name</span>
-                {sortBy === 'name' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
-              </Button>
-              
-              <Button
-                variant="outline"
-                onClick={() => handleSort('requests')}
-                className={`${sortBy === 'requests' ? 'bg-accent' : ''} text-sm`}
-                size="sm"
-              >
-                <ArrowUpDown className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Total Requests</span>
-                <span className="sm:hidden">Requests</span>
-                {sortBy === 'requests' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
-              </Button>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
         {/* College List */}
         <div className="space-y-4">
