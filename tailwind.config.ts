@@ -74,6 +74,10 @@ export default {
 					DEFAULT: 'hsl(var(--info))',
 					foreground: 'hsl(var(--info-foreground))'
 				},
+				upload: {
+					DEFAULT: 'hsl(var(--upload))',
+					foreground: 'hsl(var(--upload-foreground))'
+				},
 				'progress-complete': 'hsl(var(--progress-complete))',
 				'progress-incomplete': 'hsl(var(--progress-incomplete))'
 			},

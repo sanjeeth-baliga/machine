@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, ChangeEvent } from 'react';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -15,6 +15,7 @@ import {
   Mail,
   Lock,
   User,
+  Upload,
   
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,9 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { signInWithEmailAndPassword, signInWithPopup, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { auth, googleProvider } from "../firebase"; // auth and googleProvider for Firebase
+import axios from 'axios';
+import { googleDriveService } from '@/lib/google-drive';
+
 
 // Course interface
 interface Course {
@@ -61,6 +65,20 @@ interface AuthForm {
   name: string;
   email: string;
   password: string;
+}
+
+// Define the type for course details passed to the modal
+interface UploadModalCourse {
+  course: string;
+  college: string;
+  department: string;
+  requestCount: number;
+}
+
+interface UploadDialogProps {
+  isUploadModalOpen: boolean;
+  setIsUploadModalOpen: (open: boolean) => void;
+  uploadModalCourse?: UploadModalCourse;
 }
 
 // Mock data
@@ -113,6 +131,44 @@ const CourseCatalog = () => {
   const [activeFilterColumn, setActiveFilterColumn] = useState<{college: string, column: string} | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Upload functionality states
+  const [requestedCourses, setRequestedCourses] = useState<Set<string>>(new Set());
+  const [newlySubmittedCourses, setNewlySubmittedCourses] = useState<Set<string>>(new Set());
+
+  // Helper function to update requested courses and persist to sessionStorage
+  const updateRequestedCourses = useCallback((courseId: string) => {
+    setRequestedCourses(prev => {
+      const newSet = new Set([...prev, courseId]);
+      sessionStorage.setItem('requestedCourses', JSON.stringify([...newSet]));
+      return newSet;
+    });
+  }, []);
+
+  // Helper function to clear requested courses from sessionStorage
+  const clearRequestedCourses = useCallback(() => {
+    setRequestedCourses(new Set());
+    setNewlySubmittedCourses(new Set());
+    sessionStorage.removeItem('requestedCourses');
+    sessionStorage.removeItem('newlySubmittedCourses');
+  }, []);
+
+  // Helper function to track newly submitted courses
+  const trackNewlySubmittedCourse = useCallback((courseKey: string) => {
+    setNewlySubmittedCourses(prev => {
+      const newSet = new Set([...prev, courseKey]);
+      sessionStorage.setItem('newlySubmittedCourses', JSON.stringify([...newSet]));
+      return newSet;
+    });
+  }, []);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadModalCourse, setUploadModalCourse] = useState<Course | null>(null);
+  const [showUploadTooltip, setShowUploadTooltip] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+
   // Modal form states
   const [modalForm, setModalForm] = useState({
     college: '',
@@ -126,6 +182,8 @@ const CourseCatalog = () => {
     email: '',
     password: ''
   });
+
+
 
   const googleAppScriptURL = "https://script.google.com/macros/s/AKfycbxEQuqd8x5Ze4l8suXR5v4yTGzDp9AwWO62xvwzS8aDIzUKVFw3d1AriUXad0Xp2G3MoQ/exec";
 
@@ -157,13 +215,32 @@ const CourseCatalog = () => {
     fetchData();
   }, [fetchData]);
 
-  // On component mount, check sessionStorage for user
+  // On component mount, check sessionStorage for user and requested courses
   useEffect(() => {
     const storedUser = sessionStorage.getItem('user');
     if (storedUser) {
       setCurrentUser(JSON.parse(storedUser));
     }
+    
+    const storedRequestedCourses = sessionStorage.getItem('requestedCourses');
+    if (storedRequestedCourses) {
+      setRequestedCourses(new Set(JSON.parse(storedRequestedCourses)));
+    }
+
+    const storedNewlySubmittedCourses = sessionStorage.getItem('newlySubmittedCourses');
+    if (storedNewlySubmittedCourses) {
+      setNewlySubmittedCourses(new Set(JSON.parse(storedNewlySubmittedCourses)));
+    }
   }, []);
+
+  // After login/signup, if a course request was pending, trigger it
+  /*useEffect(() => {
+    if (currentUser && courseIdForAuth) {
+      handleRequest(courseIdForAuth);
+      setIsAuthModalOpen(false);
+      setCourseIdForAuth(null);
+    }
+  }, [currentUser, courseIdForAuth]);*/
 
   // Get unique colleges and their data
   const collegeData = useMemo(() => {
@@ -238,15 +315,25 @@ const CourseCatalog = () => {
           description: `Failed to add your request: ${data.result}`,
           variant: 'destructive',
         });
+      } else if(data.result.startsWith('Skipped')){
+        toast({
+          title: 'Hey..One Quick Thing!',
+          description: 'I guess you have already requested for this course',
+        });
       } else {
         setCourses(prev => prev.map(course =>
           course.id === courseId
             ? { ...course, requestCount: course.requestCount + 1 }
             : course
         ));
+        // Add course to requested courses and show upload tooltip
+        updateRequestedCourses(courseId);
+        setShowUploadTooltip(courseId);
+        // Auto-hide tooltip after 5 seconds
+        setTimeout(() => setShowUploadTooltip(null), 5000);
         toast({
-          title: 'Course requested!',
-          description: 'Your request has been added successfully.',
+          title: 'Great Job!',
+          description: 'Your request is registered successfully! You are one step closer to unlocking your course',
         });
       }
       fetchData();
@@ -266,20 +353,25 @@ const CourseCatalog = () => {
     setIsShareModalOpen(true);
   };
 
+  const handleUpload = (course: Course) => {
+    setUploadModalCourse(course);
+    setIsUploadModalOpen(true);
+  };
+
   const copyToClipboard = () => {
     if (shareModalCourse) {
       let message = '';
       
       if (shareModalCourse.status === 'active') {
-        message = `Share this with your friend and start learning together! "${shareModalCourse.course}" at ${shareModalCourse.college} is now active with ${shareModalCourse.requestCount} requests. Join me: ${window.location.href}`;
+        message = `I have found a cheat code to crack "${shareModalCourse.course}" at ${shareModalCourse.college}. You can directly access it and find out for yourself: ${window.location.href}`;
       } else {
-        message = `Help me request "${shareModalCourse.course}" at ${shareModalCourse.college}! We need 25 requests to make this course happen. Currently at ${shareModalCourse.requestCount}/25 requests. Join me: ${window.location.href}`;
+        message = `I have found a cheat code to crack "${shareModalCourse.course}" at the college ${shareModalCourse.college}! Currently ${shareModalCourse.requestCount} folks have voted to unlock it. I need your support in voting to unlock it: ${window.location.href}`;
       }
       
       navigator.clipboard.writeText(message).then(() => {
         toast({
-          title: "Message copied!",
-          description: "Course request message has been copied to clipboard.",
+          title: "Copied!",
+          description: "Your request has been copied to clipboard.",
         });
       });
     }
@@ -290,9 +382,9 @@ const CourseCatalog = () => {
       let shareText = '';
       
       if (shareModalCourse.status === 'active') {
-        shareText = `Share this with your friend and start learning together! "${shareModalCourse.course}" at ${shareModalCourse.college} is now active with ${shareModalCourse.requestCount} requests.`;
+        shareText = `I have found a cheat code to crack "${shareModalCourse.course}" at ${shareModalCourse.college}. You can directly access it and find out for yourself: ${window.location.href}`;
       } else {
-        shareText = `Help me request "${shareModalCourse.course}" at ${shareModalCourse.college}! We need 25 requests to make this course happen. Currently at ${shareModalCourse.requestCount}/25 requests.`;
+        shareText = `I have found a cheat code to crack "${shareModalCourse.course}" at the college ${shareModalCourse.college}! Currently ${shareModalCourse.requestCount} folks have voted to unlock it. I need your support in voting to unlock it: ${window.location.href}`;
       }
       
       navigator.share({
@@ -359,7 +451,7 @@ const CourseCatalog = () => {
         sessionStorage.setItem('user', JSON.stringify(mockUser));
         toast({
           title: 'Congratulations!',
-          description: 'Your request has been registered',
+          description: 'Your request is registered. You are now a step closer to unlocking a new course',
         });
         
       } catch (err: any) {
@@ -402,8 +494,8 @@ const CourseCatalog = () => {
         setCurrentUser(mockUser);
         sessionStorage.setItem('user', JSON.stringify(mockUser));
         toast({
-          title: 'Request Accepted!',
-          description: 'Congratulations! Your request has been registered',
+          title: 'Congratulations!',
+          description: 'Your request is registered. You are now a step closer to unlocking a new course',
         });
         
       } catch (err: any) {
@@ -468,14 +560,24 @@ const CourseCatalog = () => {
           console.error('Error updating Google Sheets:', data.result);
           toast({
             title: 'Update Failed',
-            description: `Failed to record authentication event: ${data.result}`,
+            description: `Failed to authenticate: ${data.result}`,
             variant: 'destructive',
+          });
+        } else if (data.result.startsWith('Skipped')) { 
+          toast({
+            title: 'Hey..One Quick Thing!',
+            description: 'I guess you have already requested for this course',
           });
         } else {
           console.log('Google Sheets updated successfully:', data.result);
+          // Add course to requested courses and show upload tooltip
+          updateRequestedCourses(courseIdForAuth);
+          setShowUploadTooltip(courseIdForAuth);
+          // Auto-hide tooltip after 5 seconds
+          setTimeout(() => setShowUploadTooltip(null), 5000);
           toast({
-            title: 'Authentication Recorded',
-            description: 'Your login/signup event has been recorded.',
+            title: 'Behold!',
+            description: 'You have logged in successfully',
           });
         }
         fetchData();
@@ -484,7 +586,7 @@ const CourseCatalog = () => {
         console.error('Error during Google Sheets API call:', error);
         toast({
           title: 'Network Error',
-          description: 'Could not connect to the sheet update service.',
+          description: 'Could not connect to the internal server',
           variant: 'destructive',
         });
       } finally {
@@ -500,16 +602,17 @@ const CourseCatalog = () => {
     setCourseIdForAuth(null);
   };
 
-  const handleLogout = () => {
+  /*const handleLogout = () => {
     setCurrentUser(null);
     setUserRequests(new Set());
+    clearRequestedCourses();
     sessionStorage.removeItem('user');
     toast({
       title: 'Logged out',
       description: 'You have been logged out successfully.',
     });
 
-  };
+  };*/
 
   // Effect to re-trigger handleRequest after successful authentication
   /*useEffect(() => {
@@ -573,13 +676,27 @@ const CourseCatalog = () => {
           variant: 'destructive',
         });
       } else {
+        // Create a unique key for the newly submitted course
+        const courseKey = `${form.college}-${form.department}-${form.courseName}-${form.semester}`;
+        trackNewlySubmittedCourse(courseKey);
+        
         toast({
-          title: "Course request submitted!",
-          description: "We'll review your request and get back to you soon.",
+          title: "Congratulations!",
+          description: "You have added a new course. Please invite your friends to request and unlock it",
         });
         setIsModalOpen(false);
         setModalForm({ college: '', semester: '', courseName: '', department: '' });
-        fetchData();
+        fetchData().then(() => {
+          // After data is refreshed, find the newly submitted course and show tooltip
+          const courseKey = `${form.college}-${form.department}-${form.courseName}-${form.semester}`;
+          const newlySubmittedCourse = courses.find(course => 
+            `${course.college}-${course.department}-${course.course}-${course.semester}` === courseKey
+          );
+          if (newlySubmittedCourse) {
+            setShowUploadTooltip(newlySubmittedCourse.id);
+            setTimeout(() => setShowUploadTooltip(null), 5000);
+          }
+        });
       }
     } catch (error) {
       toast({
@@ -756,14 +873,24 @@ const CourseCatalog = () => {
           console.error('Error updating Google Sheets:', data.result);
           toast({
             title: 'Update Failed',
-            description: `Failed to record authentication event: ${data.result}`,
+            description: `Failed to authenticate: ${data.result}`,
             variant: 'destructive',
+          });
+        } else if (data.result.startsWith('Skipped')) { 
+          toast({
+            title: 'Hey..One Quick Thing!',
+            description: 'I guess you have already requested for this course',
           });
         } else {
           console.log('Google Sheets updated successfully:', data.result);
+          // Add course to requested courses and show upload tooltip
+          updateRequestedCourses(courseIdForAuth);
+          setShowUploadTooltip(courseIdForAuth);
+          // Auto-hide tooltip after 5 seconds
+          setTimeout(() => setShowUploadTooltip(null), 5000);
           toast({
-            title: 'Authentication Recorded',
-            description: 'Your login/signup event has been recorded.',
+            title: 'Behold!',
+            description: 'You have logged in successfully',
           });
         }
         fetchData();
@@ -786,12 +913,95 @@ const CourseCatalog = () => {
     setAuthForm({ name: '', email: '', password: '' });
     setCourseIdForAuth(null);
 
-    toast({
+    /*toast({
       title: 'Google Sign-In',
       description: 'Google sign-in clicked (implement OAuth logic).',
-    });
+    });*/
     return;
   };
+
+  const handleFileClick = () => {
+    fileInputRef.current?.click();
+  };
+  
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      setSelectedFiles(prev => {
+        const newFiles = Array.from(event.target.files);
+        // Avoid duplicates by name
+        const existingNames = new Set(prev.map(f => f.name));
+        const filtered = newFiles.filter(f => !existingNames.has(f.name));
+        return [...prev, ...filtered];
+      });
+    }
+  };
+  
+  const handleUploadDocs = async () => {
+    if (selectedFiles.length === 0) {
+      toast({
+        title: 'No Files Selected',
+        description: 'Please select one or more files to upload.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!uploadModalCourse) {
+      toast({
+        title: 'Course Information Missing',
+        description: 'Unable to determine course information for upload.',
+        variant: 'destructive',
+      });
+      return;
+    }
+  
+    setUploading(true);
+
+    try {
+      // Use Google Drive API to upload files
+      const result = await googleDriveService.uploadFilesToCourseDirectory(
+        selectedFiles,
+        uploadModalCourse.id,
+        uploadModalCourse.course
+      );
+
+      if (result.success) {
+        const successMessage = result.uploadedFiles.length === selectedFiles.length
+          ? 'All files have been uploaded successfully!'
+          : `${result.uploadedFiles.length} out of ${selectedFiles.length} files uploaded successfully.`;
+
+        toast({
+          title: 'Upload Successful',
+          description: successMessage,
+        });
+
+        // Show errors if any files failed to upload
+        if (result.errors.length > 0) {
+          console.warn('Some files failed to upload:', result.errors);
+          toast({
+            title: 'Partial Upload',
+            description: `${result.errors.length} files failed to upload. Check console for details.`,
+            variant: 'destructive',
+          });
+        }
+
+        setSelectedFiles([]);
+        setIsUploadModalOpen(false);
+      } else {
+        throw new Error('No files were uploaded successfully');
+      }
+    } catch (error) {
+      console.error('Upload failed', error);
+      toast({
+        title: 'Upload Failed',
+        description: error instanceof Error ? error.message : 'There was a problem uploading your files. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+  
 
   return (
     <div className="min-h-screen bg-gradient-background">
@@ -967,7 +1177,7 @@ const CourseCatalog = () => {
         {/* College List */}
         <div className="space-y-4">
           {collegeData.map(({ name: collegeName, courses: collegeCourses, totalRequests }) => (
-            <Card key={collegeName} className="overflow-hidden shadow-card">
+            <Card key={collegeName} className="overflow-visible shadow-card">
               {/* College Header */}
               <button
                 onClick={() => toggleCollege(collegeName)}
@@ -1094,6 +1304,31 @@ const CourseCatalog = () => {
                                   >
                                     <Share2 className="h-4 w-4" />
                                   </Button>
+
+                                  {/* Upload Button - only active after request */}
+                                  <div className="relative">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleUpload(course)}
+                                                                        className={`hover:bg-upload hover:text-upload-foreground transition-all duration-200 ${
+                                    requestedCourses.has(course.id) || newlySubmittedCourses.has(`${course.college}-${course.department}-${course.course}-${course.semester}`)
+                                      ? 'bg-upload/10 text-upload border-upload/30' 
+                                      : 'opacity-50 cursor-not-allowed'
+                                  }`}
+                                  disabled={!requestedCourses.has(course.id) && !newlySubmittedCourses.has(`${course.college}-${course.department}-${course.course}-${course.semester}`)}
+                                    >
+                                      <Upload className="h-4 w-4" />
+                                    </Button>
+                                    
+                                    {/* Upload Tooltip */}
+                                    {showUploadTooltip === course.id && (requestedCourses.has(course.id) || newlySubmittedCourses.has(`${course.college}-${course.department}-${course.course}-${course.semester}`)) && (
+                                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-upload text-upload-foreground text-xs rounded-lg shadow-lg whitespace-nowrap z-50 animate-in fade-in-0 zoom-in-95 duration-200 max-w-xs break-words">
+                                        Can you upload some course materials?
+                                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-upload"></div>
+                                      </div>
+                                    )}
+                                  </div>
                                   
                                   {course.status === 'active' && (
                                     <Button size="sm" className="bg-success hover:bg-success/90 text-success-foreground">
@@ -1175,6 +1410,31 @@ const CourseCatalog = () => {
                               >
                                 <Share2 className="h-4 w-4" />
                               </Button>
+
+                              {/* Mobile Upload Button */}
+                              <div className="relative">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleUpload(course)}
+                                  className={`hover:bg-upload hover:text-upload-foreground transition-all duration-200 ${
+                                    requestedCourses.has(course.id) || newlySubmittedCourses.has(`${course.college}-${course.department}-${course.course}-${course.semester}`)
+                                      ? 'bg-upload/10 text-upload border-upload/30' 
+                                      : 'opacity-50 cursor-not-allowed'
+                                  }`}
+                                  disabled={!requestedCourses.has(course.id) && !newlySubmittedCourses.has(`${course.college}-${course.department}-${course.course}-${course.semester}`)}
+                                >
+                                  <Upload className="h-4 w-4" />
+                                </Button>
+                                
+                                {/* Mobile Upload Tooltip */}
+                                {showUploadTooltip === course.id && (requestedCourses.has(course.id) || newlySubmittedCourses.has(`${course.college}-${course.department}-${course.course}-${course.semester}`)) && (
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-upload text-upload-foreground text-xs rounded-lg shadow-lg whitespace-nowrap z-50 animate-in fade-in-0 zoom-in-95 duration-200 max-w-xs break-words">
+                                    Can you upload some course materials?
+                                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-upload"></div>
+                                  </div>
+                                )}
+                              </div>
                               
                               {course.status === 'active' && (
                                 <Button size="sm" className="bg-success hover:bg-success/90 text-success-foreground">
@@ -1323,7 +1583,7 @@ const CourseCatalog = () => {
           <div className="space-y-4 pt-4">
             <p className="text-sm text-muted-foreground">
               Share this with your friends and classmates to request this course. 
-              We will create this course once the request count reaches 25!
+              You will receive your personalized course hack once the request count crosses 25!
             </p>
             
             {shareModalCourse && (
@@ -1342,8 +1602,8 @@ const CourseCatalog = () => {
               <Input 
                 value={shareModalCourse ? (
                   shareModalCourse.status === 'active' 
-                    ? `Share this with your friend and start learning together! "${shareModalCourse.course}" at ${shareModalCourse.college} is now active with ${shareModalCourse.requestCount} requests. Join me: ${window.location.href}`
-                    : `Help me request "${shareModalCourse.course}" at ${shareModalCourse.college}! We need 25 requests to make this course happen. Currently at ${shareModalCourse.requestCount}/25 requests. Join me: ${window.location.href}`
+                    ? `I have found a cheat code to crack "${shareModalCourse.course}" at ${shareModalCourse.college}. You can directly access it and find out for yourself: ${window.location.href}`
+                    : `I have found a cheat code to crack "${shareModalCourse.course}" at the college ${shareModalCourse.college}! Currently ${shareModalCourse.requestCount} folks have voted to unlock it. I need your support in voting to unlock it: ${window.location.href}`
                 ) : window.location.href}
                 readOnly 
                 className="flex-1"
@@ -1363,6 +1623,100 @@ const CourseCatalog = () => {
                 Share via Apps
               </Button>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Modal */}
+      <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload Course Materials</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Accelerate the course unlock by sharing your course curriculum, class notes, question papers and reference book soft copies.
+              This will enable stronger customization
+            </p>
+            
+            {uploadModalCourse && (
+              <div className="p-4 bg-muted rounded-lg">
+                <h4 className="font-medium text-foreground">{uploadModalCourse.course}</h4>
+                <p className="text-sm text-muted-foreground">
+                  {uploadModalCourse.college} • {uploadModalCourse.department}
+                </p>
+                <p className="text-sm text-foreground mt-2">
+                  Current requests: {uploadModalCourse.requestCount}/25
+                </p>
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div
+                className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-upload/50 transition-colors cursor-pointer"
+                onClick={handleFileClick}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => {
+                  e.preventDefault();
+                  const droppedFiles = Array.from(e.dataTransfer.files);
+                  setSelectedFiles(prev => {
+                    const existingNames = new Set(prev.map(f => f.name));
+                    const filtered = droppedFiles.filter(f => !existingNames.has(f.name));
+                    return [...prev, ...filtered];
+                  });
+                }}
+              >
+                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground mb-1">
+                  Click to upload or drag and drop
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  PDF, DOC, PPT, Images (Max 10MB each)
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
+                  multiple
+                  hidden
+                  onChange={handleFileChange}
+                />
+              </div>
+
+              {selectedFiles.length > 0 && (
+                <ul className="text-sm text-foreground">
+                  {selectedFiles.map((file, idx) => (
+                    <li key={idx} className="truncate">
+                      {file.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              
+              <div className="text-xs text-muted-foreground">
+                <p>• Accepted formats: PDF, DOC, DOCX, PPT, PPTX, JPG, PNG</p>
+                <p>• Maximum file size: 10MB per file</p>
+                <p>• You can upload multiple files</p>
+              </div>
+            </div>
+            
+            <div className="flex gap-3 pt-4">
+              <Button
+                className="flex-1 bg-upload hover:bg-upload/90 text-upload-foreground"
+                disabled={selectedFiles.length === 0 || uploading}
+                onClick={handleUploadDocs}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {uploading ? 'Uploading...' : 'Upload Files'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setIsUploadModalOpen(false)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
