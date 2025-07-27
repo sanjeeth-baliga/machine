@@ -5,8 +5,8 @@ const PARENT_FOLDER_ID = import.meta.env.VITE_GOOGLE_DRIVE_PARENT_FOLDER_ID || '
 
 // Debug logging for environment variables
 console.log('Environment variables check:', {
-  CLIENT_ID: CLIENT_ID ? 'Set' : 'Missing',
-  API_KEY: API_KEY ? 'Set' : 'Missing',
+  CLIENT_ID: CLIENT_ID ? CLIENT_ID : 'Missing',
+  API_KEY: API_KEY ? API_KEY : 'Missing',
   PARENT_FOLDER_ID: PARENT_FOLDER_ID ? 'Set' : 'Missing',
   allEnvVars: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_'))
 });
