@@ -36,6 +36,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { signInWithEmailAndPassword, signInWithPopup, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { auth, googleProvider } from "../firebase"; // auth and googleProvider for Firebase
@@ -81,24 +87,6 @@ interface UploadDialogProps {
   uploadModalCourse?: UploadModalCourse;
 }
 
-// Mock data
-/*const mockCourses: Course[] = [
-  { id: '1', college: 'Stanford University', semester: 1, course: 'Introduction to AI', department: 'Computer Science', requestCount: 18, status: 'inactive' },
-  { id: '2', college: 'Stanford University', semester: 2, course: 'Machine Learning', department: 'Computer Science', requestCount: 25, status: 'active' },
-  { id: '3', college: 'Stanford University', semester: 1, course: 'Data Structures', department: 'Computer Science', requestCount: 12, status: 'progress' },
-  { id: '4', college: 'MIT', semester: 1, course: 'Calculus I', department: 'Mathematics', requestCount: 22, status: 'inactive' },
-  { id: '5', college: 'MIT', semester: 2, course: 'Physics I', department: 'Physics', requestCount: 15, status: 'active' },
-  { id: '6', college: 'MIT', semester: 1, course: 'Chemistry Basics', department: 'Chemistry', requestCount: 8, status: 'inactive' },
-  { id: '7', college: 'Harvard University', semester: 1, course: 'Psychology 101', department: 'Psychology', requestCount: 30, status: 'active' },
-  { id: '8', college: 'Harvard University', semester: 2, course: 'Business Ethics', department: 'Business', requestCount: 14, status: 'progress' },
-  { id: '9', college: 'Harvard University', semester: 1, course: 'Philosophy of Mind', department: 'Philosophy', requestCount: 7, status: 'inactive' },
-  { id: '10', college: 'UC Berkeley', semester: 1, course: 'Environmental Science', department: 'Environmental Studies', requestCount: 19, status: 'inactive' },
-  { id: '11', college: 'UC Berkeley', semester: 2, course: 'Organic Chemistry', department: 'Chemistry', requestCount: 26, status: 'active' },
-  { id: '12', college: 'UC Berkeley', semester: 1, course: 'Linear Algebra', department: 'Mathematics', requestCount: 11, status: 'progress' },
-  { id: '13', college: 'Princeton University', semester: 1, course: 'Art History', department: 'Art', requestCount: 9, status: 'inactive' },
-  { id: '14', college: 'Princeton University', semester: 2, course: 'Economics 101', department: 'Economics', requestCount: 23, status: 'active' },
-  { id: '15', college: 'Princeton University', semester: 1, course: 'Creative Writing', department: 'English', requestCount: 16, status: 'progress' }
-];*/
 
 const CourseCatalog = () => {
   //const [courses, setCourses] = useState<Course[]>(mockCourses);
@@ -119,6 +107,8 @@ const CourseCatalog = () => {
   const [courseIdForAuth, setCourseIdForAuth] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [processingCourseId, setProcessingCourseId] = useState<string | null>(null);
+  const [showInitialAddCourseTooltip, setShowInitialAddCourseTooltip] = useState(true);
+  const [isAddCourseTooltipHovered, setIsAddCourseTooltipHovered] = useState(false);
   const [pendingCourseRequest, setPendingCourseRequest] = useState<null | typeof modalForm>(null);
   const [courseRequestLoading, setCourseRequestLoading] = useState(false);
 
@@ -133,6 +123,7 @@ const CourseCatalog = () => {
 
   // Upload functionality states
   const [requestedCourses, setRequestedCourses] = useState<Set<string>>(new Set());
+
   const [newlySubmittedCourses, setNewlySubmittedCourses] = useState<Set<string>>(new Set());
 
   // Helper function to update requested courses and persist to sessionStorage
@@ -228,6 +219,14 @@ const CourseCatalog = () => {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowInitialAddCourseTooltip(false);
+    }, 10000); // 10 seconds
+
+    return () => clearTimeout(timer);
+  }, []);
+
   // On component mount, check sessionStorage for user and requested courses
   useEffect(() => {
     const storedUser = sessionStorage.getItem('user');
@@ -244,6 +243,7 @@ const CourseCatalog = () => {
     if (storedNewlySubmittedCourses) {
       setNewlySubmittedCourses(new Set(JSON.parse(storedNewlySubmittedCourses)));
     }
+
   }, []);
 
   // After login/signup, if a course request was pending, trigger it
@@ -1017,15 +1017,21 @@ const CourseCatalog = () => {
   
 
   return (
-    <div className="min-h-screen bg-gradient-background">
+    <TooltipProvider>
+      <div className="min-h-screen bg-gradient-background">
       <div className="max-w-7xl mx-auto p-4 lg:p-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl lg:text-4xl font-bold text-foreground bg-gradient-primary bg-clip-text text-transparent">
-              Course Popularity Leaderboard
-            </h1>
-            <p className="text-muted-foreground mt-2">Discover and request courses from top universities</p>
+          <div className="flex items-start gap-4">
+            <a href="https://kplor.com" target="_blank" rel="noopener noreferrer">
+              <img src="/Kplor_logo.png" alt="Kplor Logo" className="h-12 w-auto" />
+            </a>
+            <div>
+              <h1 className="text-3xl lg:text-4xl font-bold text-white">
+                Build My Course
+              </h1>
+              <p className="text-muted-foreground mt-2">Students decide what we build next - add your course now</p>
+            </div>
           </div>
           
           <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -1043,14 +1049,27 @@ const CourseCatalog = () => {
               </Button>
             )}*/}
             
+            <Button asChild variant="outline" className="border-primary text-primary hover:bg-primary/10 hover:text-primary hover:shadow-[0_0_15px_2px] hover:shadow-primary/40 transition-shadow duration-300 font-medium px-4 lg:px-6 py-3 rounded-lg">
+              <a href="https://live.kplor.kplor.com" target="_blank" rel="noopener noreferrer">
+                Try Beta Now
+              </a>
+            </Button>
+            
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-gradient-primary hover:opacity-90 text-primary-foreground font-medium px-4 lg:px-6 py-3 rounded-lg shadow-elegant">
-                  <Plus className="h-5 w-5 mr-2" />
-                  <span className="hidden sm:inline">Add College / Course</span>
-                  <span className="sm:hidden">Request</span>
-                </Button>
-              </DialogTrigger>
+              <Tooltip open={showInitialAddCourseTooltip || isAddCourseTooltipHovered} onOpenChange={setIsAddCourseTooltipHovered}>
+                <TooltipTrigger asChild>
+                  <DialogTrigger asChild>
+                    <Button className="bg-gradient-primary hover:opacity-90 text-primary-foreground font-medium px-4 lg:px-6 py-3 rounded-lg shadow-elegant">
+                      <Plus className="h-5 w-5 mr-2" />
+                      <span className="hidden sm:inline">Add College / Course</span>
+                      <span className="sm:hidden">Request</span>
+                    </Button>
+                  </DialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-purple-600 text-white">
+                  <p>Don't see your subject? Request it and we'll make it for you!</p>
+                </TooltipContent>
+              </Tooltip>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                   <DialogTitle>Add new College / Course</DialogTitle>
@@ -1763,7 +1782,7 @@ const CourseCatalog = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </div></TooltipProvider>
   );
 };
 
